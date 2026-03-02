@@ -1,6 +1,7 @@
 import base64
 import logging
-from typing import Optional, Tuple
+from datetime import date as _date
+from typing import Optional, Tuple, Union, Dict, Any
 
 import httpx
 
@@ -87,12 +88,107 @@ class TeamworkService:
                 logger.exception("Error calling Teamwork API: %s", exc)
                 return False
 
+    async def log_time_minutes(
+        self,
+        *,
+        task_id: str,
+        minutes: int,
+        description: str,
+        date: Optional[Union[str, Dict[str, Any]]] = None,
+        is_billable: Optional[bool] = None,
+    ) -> bool:
+        """Log time in Teamwork against a specific task using minutes.
+
+        Endpoint: POST /projects/api/v3/tasks/{taskId}/time.json
+        Body shape (per docs):
+        {
+          "timelog": {
+            "minutes": 120,
+            "description": "...",
+            "date": "YYYY-MM-DD",
+            "isBillable": true
+          }
+        }
+        """
+        # Endpoint for task-specific time in Teamwork v3:
+        # POST /projects/api/v3/tasks/{taskId}/time.json
+        # Body shape:
+        # {
+        #   "timelog": {
+        #     "minutes": 120,
+        #     "description": "...",
+        #     "date": {"year": 2026, "month": 3, "day": 2},
+        #     "isBillable": true
+        #   }
+        # }
+        tl: dict = {
+            "minutes": int(minutes),
+            "description": description,
+        }
+
+        # Compose date dict as required by Teamwork (year/month/day)
+        date_dict: Optional[dict] = None
+        if isinstance(date, dict):
+            # Assume already in correct format
+            date_dict = {
+                "year": int(date.get("year")),
+                "month": int(date.get("month")),
+                "day": int(date.get("day")),
+            }
+        elif isinstance(date, str) and len(date) >= 10:
+            # Expecting YYYY-MM-DD
+            try:
+                y, m, d = date[:10].split("-")
+                date_dict = {"year": int(y), "month": int(m), "day": int(d)}
+            except Exception:
+                date_dict = None
+
+        if date_dict is None:
+            today = _date.today()
+            date_dict = {"year": today.year, "month": today.month, "day": today.day}
+
+        tl["date"] = date_dict
+
+        if is_billable is not None:
+            tl["isBillable"] = bool(is_billable)
+        payload = {"timelog": tl}
+
+        if self.dry_run:
+            logger.info(
+                "[DRY-RUN] Would send time (minutes) to Teamwork",
+                extra={"task_id": task_id, "minutes": minutes, "date": date, "payload": payload},
+            )
+            return True
+
+        url = f"{self.base_url}/projects/api/v3/tasks/{task_id}/time.json"
+        headers = {"Content-Type": "application/json", **self._auth_header()}
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            try:
+                r = await client.post(url, json=payload, headers=headers)
+                if r.status_code in (200, 201):
+                    logger.info("Time (minutes) logged in Teamwork", extra={"status": r.status_code})
+                    return True
+                logger.error(
+                    "Failed to log time (minutes) in Teamwork",
+                    extra={"status": r.status_code, "body": r.text, "payload": payload},
+                )
+
+                logger.info("Failed to log time (minutes) in Teamwork",
+                    extra={"status": r.status_code, "body": r.text, "payload": payload})
+
+                logger.info(r.text)
+
+                return False
+            except Exception as exc:
+                logger.exception("Error calling Teamwork API (minutes): %s", exc)
+                return False
+
     async def _list_tasklist_tasks(self, tasklist_id: str) -> Optional[list[dict]]:
         if self.dry_run:
             logger.info("[DRY-RUN] Would list tasks in tasklist", extra={"tasklist_id": tasklist_id})
             return []
         url = f"{self.base_url}/projects/api/v3/tasklists/{tasklist_id}/tasks.json"
-        print("si llegó hasta aquí")
         headers = self._auth_header()
         async with httpx.AsyncClient(timeout=15) as client:
             try:
@@ -129,6 +225,14 @@ class TeamworkService:
                 task_id = str(t.get("id")) if t.get("id") is not None else None
                 if task_id:
                     logger.info("Found existing Teamwork task", extra={"task_id": task_id, "title": title})
+                    return True, task_id
+        # Optional heuristic: try to match by GitLab web URL or IID marker present in description
+        for t in tasks:
+            desc = t.get("description") or ""
+            if issue_web_url and issue_web_url in desc:
+                task_id = str(t.get("id")) if t.get("id") is not None else None
+                if task_id:
+                    logger.info("Matched Teamwork task by issue URL in description", extra={"task_id": task_id})
                     return True, task_id
 
         # Create
