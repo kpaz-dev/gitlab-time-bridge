@@ -1,0 +1,23 @@
+{
+  "object_kind": "note",
+  "user": {
+    "id": 42,
+    "name": "Juan Perez",
+    "username": "jperez",
+    "email": "juan.perez@example.com"
+  },
+  "project": {
+    "id": 123,
+    "name": "pilma-suite",
+    "path_with_namespace": "pilma/pilma-suite"
+  },
+  "object_attributes": {
+    "note": "added 1h 30m of time spent"
+  },
+  "issue": {
+    "id": 9876,
+    "iid": 321,
+    "title": "Arreglar bug en el módulo de pagos",
+    "web_url": "http://10.45.5.2/pilma/pilma-suite/-/issues/321"
+  }
+}
