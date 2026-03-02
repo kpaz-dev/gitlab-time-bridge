@@ -132,17 +132,16 @@ class TeamworkService:
                     return True, task_id
 
         # Create
-        body_desc = description or ""
+        body_desc = (description or "").strip()
         if issue_web_url:
             body_desc = f"{body_desc}\n\nGitLab: {issue_web_url}".strip()
 
-        payload = {
-            "task": {
-                "taskListId": tasklist_id,
-                "title": title,
-                "description": body_desc,
-            }
-        }
+        # Build payload dynamically for better API compatibility
+        # Según documentación v3: el campo requerido es "name"
+        task_obj: dict = {"name": title}
+        if body_desc:
+            task_obj["description"] = body_desc
+        payload = {"task": task_obj}
 
         if self.dry_run:
             logger.info(
@@ -152,7 +151,8 @@ class TeamworkService:
             # Simulate a task id
             return True, "DRYRUN_TASK_ID"
 
-        url = f"{self.base_url}/projects/api/v3/tasks.json"
+        # Create task under the specific task list
+        url = f"{self.base_url}/projects/api/v3/tasklists/{tasklist_id}/tasks.json"
         headers = {"Content-Type": "application/json", **self._auth_header()}
         async with httpx.AsyncClient(timeout=15) as client:
             try:
@@ -162,6 +162,7 @@ class TeamworkService:
                     task_id = str(data.get("task", {}).get("id") or data.get("id")) if isinstance(data, dict) else None
                     logger.info("Created Teamwork task", extra={"task_id": task_id, "status": r.status_code})
                     return True, task_id
+                # Log full error body to help diagnose payload/endpoint issues
                 logger.error("Failed to create task", extra={"status": r.status_code, "body": r.text})
                 return False, None
             except Exception as exc:
