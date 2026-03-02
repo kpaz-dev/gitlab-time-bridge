@@ -40,6 +40,16 @@ Variables de entorno (config)
   Ejemplo: {"123": "99999", "pilma/pilma-suite": "99999", "default": "99999"}
 - TEAMWORK_USER_MAP_JSON: Mapa JSON para convertir usuario GitLab → userId de Teamwork. Se buscan coincidencias por id, username o nombre. Ej: {"42": "111", "jperez": "111", "Juan Perez": "111"}
 
+Fichero .env
+
+Además de exportar variables en tu shell, puedes crearlas en un fichero .env en la raíz del proyecto (se cargará gracias a python-dotenv al ejecutar con uvicorn o al usar herramientas que lean .env). Ya tienes un .env.example con placeholders. Cópialo así:
+
+```
+cp .env.example .env
+```
+
+Luego edita .env y ajusta valores (tokens, mapas, etc.).
+
 Ejecutar en local
 
 1) Crear y activar entorno, instalar dependencias:
