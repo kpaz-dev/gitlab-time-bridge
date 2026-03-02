@@ -126,28 +126,22 @@ class TeamworkService:
             "description": description,
         }
 
-        # Compose date dict as required by Teamwork (year/month/day)
-        date_dict: Optional[dict] = None
-        if isinstance(date, dict):
-            # Assume already in correct format
-            date_dict = {
-                "year": int(date.get("year")),
-                "month": int(date.get("month")),
-                "day": int(date.get("day")),
-            }
-        elif isinstance(date, str) and len(date) >= 10:
-            # Expecting YYYY-MM-DD
-            try:
-                y, m, d = date[:10].split("-")
-                date_dict = {"year": int(y), "month": int(m), "day": int(d)}
-            except Exception:
-                date_dict = None
+        # Compose date as required by Teamwork for this endpoint
+        # According to latest info, expected shape is:
+        # { "type": "date", "value": "YYYY-MM-DD" }
+        def _to_datestr(d: Optional[Union[str, Dict[str, Any]]]) -> str:
+            if isinstance(d, str) and len(d) >= 10:
+                return d[:10]
+            if isinstance(d, dict):
+                y = d.get("year")
+                m = d.get("month")
+                dd = d.get("day")
+                if y and m and dd:
+                    return f"{int(y):04d}-{int(m):02d}-{int(dd):02d}"
+            t = _date.today()
+            return f"{t.year:04d}-{t.month:02d}-{t.day:02d}"
 
-        if date_dict is None:
-            today = _date.today()
-            date_dict = {"year": today.year, "month": today.month, "day": today.day}
-
-        tl["date"] = date_dict
+        tl["date"] = _to_datestr(date)
 
         if is_billable is not None:
             tl["isBillable"] = bool(is_billable)
