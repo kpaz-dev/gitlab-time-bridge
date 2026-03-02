@@ -20,6 +20,10 @@ class Settings:
     teamwork_user_map_json: Optional[str] = os.getenv("TEAMWORK_USER_MAP_JSON")
     teamwork_project_map_json: Optional[str] = os.getenv("TEAMWORK_PROJECT_MAP_JSON")
     teamwork_dry_run: bool = os.getenv("TEAMWORK_DRY_RUN", "true").lower() in {"1", "true", "yes"}
+    # Optional Task List to create/link tasks to issues
+    teamwork_tasklist_id: Optional[str] = os.getenv("TEAMWORK_TASKLIST_ID")
+    # Create task automatically on first time note if it does not exist
+    teamwork_create_task_on_note: bool = os.getenv("TEAMWORK_CREATE_TASK_ON_NOTE", "true").lower() in {"1", "true", "yes"}
 
     def __init__(self) -> None:
         self.teamwork_user_map: Dict[str, str] = {}

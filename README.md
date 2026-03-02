@@ -39,6 +39,8 @@ Variables de entorno (config)
 - TEAMWORK_PROJECT_MAP_JSON: Mapa JSON para resolver el proyecto de Teamwork a partir del proyecto de GitLab. Admite keys como id de proyecto de GitLab ("123") o path con namespace ("pilma/pilma-suite"). También se puede definir una key "default".
   Ejemplo: {"123": "99999", "pilma/pilma-suite": "99999", "default": "99999"}
 - TEAMWORK_USER_MAP_JSON: Mapa JSON para convertir usuario GitLab → userId de Teamwork. Se buscan coincidencias por id, username o nombre. Ej: {"42": "111", "jperez": "111", "Juan Perez": "111"}
+- TEAMWORK_TASKLIST_ID: ID de la Task List de Teamwork donde se crearán automáticamente las tareas para cada Issue de GitLab (si se reciben eventos de issue). Ej: 2244612.
+- TEAMWORK_CREATE_TASK_ON_NOTE: true/false. Si true (por defecto), si llega una nota con tiempo y aún no existe la tarea en Teamwork, se intentará crear primero la tarea y luego registrar el tiempo contra ella.
 
 Fichero .env
 
@@ -68,6 +70,8 @@ export TEAMWORK_BASE_URL="https://miempresa.teamwork.com"
 export TEAMWORK_API_TOKEN="TW_TOKEN"   # opcional; si no, queda en dry-run
 export TEAMWORK_PROJECT_MAP_JSON='{"pilma/pilma-suite": "99999", "default": "99999"}'
 export TEAMWORK_USER_MAP_JSON='{"jperez": "111"}'
+export TEAMWORK_TASKLIST_ID="2244612"
+export TEAMWORK_CREATE_TASK_ON_NOTE=true
 ```
 
 3) Iniciar servidor:
@@ -102,6 +106,8 @@ Qué hace el endpoint
 - Busca mensajes tipo: "added 1h of time spent", "added 30m of time spent", o combinaciones "1h 30m".
 - Extrae título del issue, id del issue, proyecto, usuario y segundos.
 - Convierte el tiempo a segundos y lo envía a Teamwork usando TeamworkService (si no está en dry-run).
+- Si `object_kind = "issue"` con acción de creación (open/opened), crea (o reaprovecha si existe) una tarea en la Task List indicada por `TEAMWORK_TASKLIST_ID`, usando como título `[GL#<iid>] <título del issue>` y como descripción la del issue + enlace.
+- Si `object_kind = "note"` con tiempo y existe `TEAMWORK_TASKLIST_ID`, buscará/creará la tarea correspondiente y registrará el tiempo contra esa tarea (en lugar de a nivel de proyecto).
 
 Docker
 
@@ -120,6 +126,8 @@ docker run --rm -p 8000:8000 \
   -e TEAMWORK_API_TOKEN=TW_TOKEN \
   -e TEAMWORK_PROJECT_MAP_JSON='{"pilma/pilma-suite": "99999", "default": "99999"}' \
   -e TEAMWORK_USER_MAP_JSON='{"jperez": "111"}' \
+  -e TEAMWORK_TASKLIST_ID=2244612 \
+  -e TEAMWORK_CREATE_TASK_ON_NOTE=true \
   gitlab-time-bridge:latest
 ```
 
@@ -128,3 +136,4 @@ Notas
 - Por defecto el servicio opera en modo dry-run si no hay token; útil para probar sin impactar Teamwork.
 - El endpoint está pensado para GitLab Self-Managed como en tu red interna (ej.: http://10.45.5.2/pilma/pilma-suite/-/issues).
 - La integración con Teamwork usa httpx de forma asíncrona; el método actual es un stub preparado para producción, pero puede requerir ajustar la ruta exacta del endpoint y el formato del payload según tu versión de la API de Teamwork.
+ - La creación/búsqueda de tareas usa un enfoque simple: se lista la Task List y se busca por título exacto. Si necesitas reglas distintas (por ejemplo, buscar por referencia externa o crear en distintas listas según el proyecto), se puede ampliar.

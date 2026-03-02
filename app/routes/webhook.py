@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 @router.post("/gitlab")
 async def gitlab_webhook(request: Request, x_gitlab_token: str | None = Header(default=None)) -> Dict[str, Any]:
+    logger.info("Received GitLab webhook")
     # Validate secret if configured
     if settings.gitlab_webhook_secret:
         if not x_gitlab_token or x_gitlab_token != settings.gitlab_webhook_secret:
@@ -23,6 +24,37 @@ async def gitlab_webhook(request: Request, x_gitlab_token: str | None = Header(d
 
     payload: Dict[str, Any] = await request.json()
     evt = GitLabEvent.parse_obj({**payload, "raw": payload})
+
+    # Handle Issue events: create/link task in Teamwork Task List
+    if evt.object_kind == "issue":
+        attrs = (payload.get("object_attributes", {}) or {})
+        action = attrs.get("action")
+        # Process on create/open (and optionally on reopen)
+        logger.info("Evento de issue recibido", extra={"action": action})
+        if action in {"open", "opened", "reopen", "reopened"} or action is None:
+            logger.info("Procesando creación/apertura de issue")
+            # En eventos de tipo issue, los datos vienen en object_attributes
+            iid = attrs.get("iid")
+            title = attrs.get("title") or "(sin título)"
+            task_title = f"[GL#{iid}] {title}" if iid is not None else title
+            issue_desc = attrs.get("description")
+            issue_url = attrs.get("url") or attrs.get("web_url")
+
+            if not settings.teamwork_tasklist_id:
+                logger.warning("TEAMWORK_TASKLIST_ID not set; cannot create Teamwork Task for issue")
+                return {"status": "ignored", "reason": "no tasklist configured"}
+
+            ok, task_id = await teamwork_service.create_or_find_task(
+                tasklist_id=settings.teamwork_tasklist_id,
+                title=task_title,
+                description=issue_desc,
+                issue_web_url=issue_url,
+            )
+            if not ok:
+                raise HTTPException(status_code=502, detail="Failed to create/find Teamwork task")
+            return {"status": "ok", "task_id": task_id, "task_title": task_title}
+
+        return {"status": "ignored", "reason": f"issue action {action} not handled"}
 
     if evt.object_kind != "note":
         logger.debug("Ignoring non-note event", extra={"object_kind": evt.object_kind})
@@ -56,11 +88,31 @@ async def gitlab_webhook(request: Request, x_gitlab_token: str | None = Header(d
 
     description = f"GitLab #{issue_id}: {issue_title} — {user_name or 'unknown'}"
 
+    # If a task list is configured, try to log time against the corresponding task
+    task_id_to_use = None
+    if settings.teamwork_tasklist_id:
+        # Build deterministic task title from issue iid + title
+        iid = evt.issue.iid if evt.issue else None
+        base_title = issue_title or "(sin título)"
+        task_title = f"[GL#{iid}] {base_title}" if iid is not None else base_title
+        ok_find, found_task_id = await teamwork_service.create_or_find_task(
+            tasklist_id=settings.teamwork_tasklist_id,
+            title=task_title,
+            description=(evt.raw.get("object_attributes", {}) or {}).get("description") if settings.teamwork_create_task_on_note else None,
+            issue_web_url=evt.issue.web_url if evt.issue else None,
+        )
+        if ok_find:
+            task_id_to_use = found_task_id
+        else:
+            # if cannot find/create, we will fallback to project level
+            logger.warning("Could not find/create Teamwork task for note; will fallback to project-level time")
+
     ok = await teamwork_service.log_time(
-        project_id=str(tw_project_id) if tw_project_id else "",
+        project_id=(str(tw_project_id) if tw_project_id else None) if not task_id_to_use else None,
         description=description,
         user_id=str(tw_user_id) if tw_user_id else None,
         seconds=seconds,
+        task_id=task_id_to_use,
         issue_id=issue_id,
         issue_title=issue_title,
     )
